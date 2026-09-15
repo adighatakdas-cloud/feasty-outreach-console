@@ -1,0 +1,48 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1789456541639,
+      "tag": "0000_keen_garia",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1789457183817,
+      "tag": "0001_short_the_stranger",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1789458316595,
+      "tag": "0002_long_klaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1789459234993,
+      "tag": "0003_sharp_pyro",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1789459374291,
+      "tag": "0004_chemical_mandarin",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1789459957634,
+      "tag": "0005_dazzling_roland_deschain",
+      "breakpoints": true
+    }
+  ]
+}
