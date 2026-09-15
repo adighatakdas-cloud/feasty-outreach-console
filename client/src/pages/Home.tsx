@@ -48,8 +48,8 @@ import {
 type PageKey = "overview" | "research" | "accounts" | "leads" | "campaigns" | "inbox" | "automations" | "audit" | "settings";
 type Tone = "orange" | "yellow" | "green" | "blue" | "red" | "gray";
 
-const logo = "/manus-storage/feasty-wordmark_2abe2c5a.svg";
-const mark = "/manus-storage/feasty-mark_1601ee71.svg";
+const logo = "/brand/feasty-logo-1.svg";
+const mark = "/brand/feasty-logo-1.svg";
 
 const navItems: { key: PageKey; label: string; icon: typeof Activity; hint: string }[] = [
   { key: "overview", label: "Overview", icon: LayoutDashboard, hint: "System readiness" },
