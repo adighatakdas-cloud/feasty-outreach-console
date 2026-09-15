@@ -28,6 +28,8 @@ The application uses the initialized secure OAuth session provider through the s
 
 For a production deployment, set the session secret, OAuth application values, owner identity, and database URL through server-side environment configuration. Do not commit `.env` files or credentials. The owner identity is promoted to administrator during user upsert; additional administrator assignment should be a deliberate database change with an audit record.
 
+The fill-in template is `.env.example`. The current runtime remains on the initialized OAuth session and MySQL-compatible driver until the Railway and Clerk migration is deliberately completed. When those values are available, the migration should be applied as a reviewed change rather than silently switching production drivers. Clerk's server key belongs only in server environment configuration; its publishable key may be supplied to the browser build. Instagram passwords, cookies, and browser profile data do not belong in either file.
+
 ## Local development
 
 ```bash
