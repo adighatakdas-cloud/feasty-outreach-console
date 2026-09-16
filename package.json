@@ -7,6 +7,8 @@
     "dev": "NODE_ENV=development tsx watch server/_core/index.ts",
     "build": "vite build && esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "NODE_ENV=production node dist/index.js",
+    "worker": "NODE_ENV=production tsx server/worker.ts",
+    "worker:once": "NODE_ENV=production WORKER_ONCE=1 tsx server/worker.ts",
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",
@@ -77,6 +79,7 @@
     "superjson": "^1.13.3",
     "tailwind-merge": "^3.3.1",
     "tailwindcss-animate": "^1.0.7",
+    "undici": "^8.10.2",
     "vaul": "^1.1.2",
     "wouter": "^3.3.5",
     "zod": "^4.1.12"

@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull, lte, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import {
@@ -26,6 +26,7 @@ import {
   type InsertSendingAccount,
   type InsertUser,
 } from "../drizzle/schema";
+import type { ExecutionJob, ExecutionRoute } from "./execution-engine";
 import { ENV } from "./_core/env";
 
 let dbInstance: ReturnType<typeof drizzle> | null = null;
@@ -99,3 +100,46 @@ export async function saveProxyRoute(input: { accountId: number; label: string; 
 export async function findApiClientByHash(keyHash: string) { const db = await getDb(); if (!db) return undefined; const result = await db.select().from(apiClients).where(eq(apiClients.keyHash, keyHash)).limit(1); return result[0]; }
 export async function markApiClientUsed(id: number) { const db = await getDb(); if (!db) return; await db.update(apiClients).set({ lastUsedAt: new Date() }).where(eq(apiClients.id, id)); }
 export async function healthCheck() { const db = await getDb(); return { database: db ? "connected" : "unavailable" as const, mode: "live-data" as const }; }
+
+export async function listRunnableAutomationJobs(now = new Date()): Promise<ExecutionJob[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(automationJobs).where(and(or(eq(automationJobs.status, "queued"), and(eq(automationJobs.status, "running"), lte(automationJobs.leaseExpiresAt, now))), or(isNull(automationJobs.runAfter), lte(automationJobs.runAfter, now)))).orderBy(automationJobs.createdAt).limit(25) as Promise<ExecutionJob[]>;
+}
+
+export async function updateAutomationJob(id: number, patch: Partial<ExecutionJob>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+  const allowed = {
+    status: patch.status,
+    attempts: patch.attempts,
+    leaseOwner: patch.leaseOwner,
+    leaseExpiresAt: patch.leaseExpiresAt,
+    correlationId: patch.correlationId,
+    lastErrorCode: patch.lastErrorCode,
+    lastError: patch.lastError,
+    runAfter: patch.runAfter,
+    startedAt: patch.startedAt,
+    finishedAt: patch.finishedAt,
+  };
+  await db.update(automationJobs).set(Object.fromEntries(Object.entries(allowed).filter(([, value]) => value !== undefined))).where(eq(automationJobs.id, id));
+}
+
+export async function listExecutionRoutes(accountId: number): Promise<ExecutionRoute[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({ id: proxyRoutes.id, accountId: proxyRoutes.accountId, label: proxyRoutes.label, protocol: proxyRoutes.protocol, host: proxyRoutes.host, port: proxyRoutes.port, secretRef: proxyRoutes.secretRef, enabled: proxyRoutes.enabled, lastError: proxyRoutes.lastError }).from(proxyRoutes).where(eq(proxyRoutes.accountId, accountId));
+  return rows.map((row) => ({ ...row, protocol: row.protocol as ExecutionRoute["protocol"], state: !row.enabled ? "disabled" as const : row.lastError ? "degraded" as const : "available" as const }));
+}
+
+export async function recordExecutionRouteFailure(routeId: number, error: string, now = new Date()) {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+  await db.update(proxyRoutes).set({ lastError: error, lastHealthAt: now, updatedAt: now }).where(eq(proxyRoutes.id, routeId));
+}
+
+export async function recordExecutionRouteSuccess(routeId: number, now = new Date()) {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+  await db.update(proxyRoutes).set({ lastError: null, lastHealthAt: now, updatedAt: now }).where(eq(proxyRoutes.id, routeId));
+}

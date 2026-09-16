@@ -14,7 +14,7 @@ The supplied product requirements target PostgreSQL on Railway, Next.js, and Cle
 - Research suite for configurable collection rules, source selection, review modes, and controlled handoff into campaigns.
 - Lead registry with explicit qualification verdicts and operator review actions.
 - Sender-account records with caps, working hours, status, pause/resume, and health history.
-- Stable per-account proxy-route records with protocol, host, port, secret reference, enablement, and last health/error state. Routes are pinned per account; automatic rotation is intentionally not enabled.
+- Stable per-account proxy-route records with protocol, host, port, secret reference, enablement, and last health/error state. The worker supports bounded health-first failover across configured routes; it does not perform stealth identity evasion.
 - Campaign drafts, status controls, follow-up policy fields, and A/B experiment storage.
 - Adapter catalog for Instagram/Meta, Google Maps, Discord notifications, and network routing using official API, operator-assist, or disabled modes.
 - Automation queue with retry, pause, cancel, status, and failure classification controls.
@@ -44,7 +44,17 @@ pnpm check       # TypeScript
 pnpm test        # Vitest
 pnpm build       # Vite + server production bundle
 pnpm format      # Prettier
+pnpm worker:once # Process queued jobs once; requires DATABASE_URL
+pnpm worker      # Run the separate persistent worker loop
 ```
+
+### Functional execution layer
+
+The repository includes an executable worker boundary in `server/execution-engine.ts` and `server/worker.ts`. The worker leases runnable jobs, dispatches them to a compatible adapter, records route health, completes jobs through the existing durable state machine, and fails closed when an adapter is missing. `authorized_import_dry_run` and `send_dry_run` are included for end-to-end queue verification without external traffic.
+
+Configured routes are selected per account in health-first order. A transient route failure may move to the next configured route in the same bounded cycle; challenge, block, and rate-limit results stop the attempt and are surfaced for operator review. Route credentials are referenced by `secretRef` and are not loaded into the dashboard or persisted in job payloads. SOCKS5 is represented in configuration but requires an approved runtime transport before it can execute.
+
+The lead-scoring layer in `server/lead-scoring.ts` is an explainable baseline model. It normalizes follower, engagement, activity, location, keyword, and verification signals, returns reasons and a model version, and can fit a deterministic perceptron from operator-labeled examples. Fitted weights are offline/shadow artifacts until a governed approval promotes them. The model does not bypass compliance or human review.
 
 Database changes follow this sequence:
 
@@ -72,7 +82,7 @@ Use `Authorization: Bearer fsty_live_…`. Create and revoke keys from **Setting
 
 Research collection is deliberately separate from sender accounts. A research run is configured with a source, terms, result ceiling, and review policy. It should run through a dedicated research account and stable route. A collection run stops on a CAPTCHA or rate-limit signal, preserves collected records, and requires operator review before any outreach handoff.
 
-Proxy configuration is for authorized, stable network routing and diagnostics. The intended mapping is one route per account and one browser profile per account. Credentials belong in a server-side secret manager and are referenced through `secretRef`; the UI does not store passwords. Automatic proxy rotation, stealth fingerprinting, CAPTCHA bypass, and IP switching are not implemented because they would make account identity and auditability less reliable and could evade platform controls.
+Proxy configuration is for authorized network routing and diagnostics. The intended mapping is one route per account and one browser profile per account. The worker can fail over between explicitly configured routes after a transient transport failure, records the attempt and outcome, and stops on provider challenges. Credentials belong in a server-side secret manager and are referenced through `secretRef`; the UI does not store passwords. Stealth fingerprinting, CAPTCHA bypass, and covert IP switching are not implemented.
 
 ## Security posture
 
