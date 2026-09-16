@@ -617,3 +617,19 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 .table-panel th { height: var(--table-row-height); padding: 0 var(--space-2); }
 .table-panel td { padding: 0 var(--space-2); }
 @media (max-width: 900px) { .overview-grid { grid-template-columns: 1fr; } .activity-time { width: auto; } }
+
+/* Shell polish: quiet top bar and floating quick access */
+.top-actions { gap: var(--space-2); }
+.top-status { height: var(--control-height); padding: 0 var(--space-2); color: var(--text-secondary); border: 1px solid var(--separator); border-radius: var(--radius-control); background: var(--bg-elevated-1); }
+.top-status span { width: 8px; height: 8px; background: var(--success); box-shadow: none; }
+.profile-dot { width: 32px; height: 32px; color: var(--accent-contrast); background: var(--accent); }
+.quick-access { position: fixed; right: var(--space-3); bottom: var(--space-3); z-index: 30; display: flex; align-items: center; gap: var(--space-1); }
+.quick-access-actions { display: flex; align-items: center; gap: var(--space-1); padding: var(--space-1); border: 1px solid var(--separator); border-radius: 24px; background: var(--bg-elevated-2); box-shadow: 0 12px 32px rgba(0,0,0,.14); opacity: 0; pointer-events: none; transform: translateX(8px) scale(.96); transition: opacity 180ms ease-out, transform 180ms ease-out; }
+.quick-access-open .quick-access-actions { opacity: 1; pointer-events: auto; transform: translateX(0) scale(1); }
+.quick-access-actions button, .quick-access-toggle { display: grid; place-items: center; width: 36px; height: 36px; color: var(--text-secondary); border: 0; border-radius: 50%; background: transparent; transition: color 160ms ease-out, background 160ms ease-out, transform 160ms ease-out; }
+.quick-access-actions button:hover { color: var(--accent); background: var(--bg-elevated-3); transform: translateY(-1px); }
+.quick-access-toggle { color: var(--accent-contrast); background: var(--accent); box-shadow: 0 10px 24px rgba(255,97,29,.24); }
+.quick-access-toggle:hover { transform: translateY(-2px); }
+.quick-access-toggle:active, .quick-access-actions button:active { transform: scale(.94); }
+.dark .quick-access-actions { box-shadow: 0 16px 34px rgba(0,0,0,.45); }
+@media (max-width: 620px) { .quick-access { right: var(--space-2); bottom: var(--space-2); } .quick-access-actions button { width: 40px; height: 40px; } .quick-access-toggle { width: 44px; height: 44px; } }
