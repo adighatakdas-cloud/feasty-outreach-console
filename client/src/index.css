@@ -633,3 +633,23 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 .quick-access-toggle:active, .quick-access-actions button:active { transform: scale(.94); }
 .dark .quick-access-actions { box-shadow: 0 16px 34px rgba(0,0,0,.45); }
 @media (max-width: 620px) { .quick-access { right: var(--space-2); bottom: var(--space-2); } .quick-access-actions button { width: 40px; height: 40px; } .quick-access-toggle { width: 44px; height: 44px; } }
+
+/* Settings architecture: one focused section at a time */
+.settings-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin: 0 0 var(--space-3); padding: 1px; border: 1px solid var(--separator); border-radius: var(--radius-panel); background: var(--separator); overflow: hidden; }
+.settings-tab { display: grid; gap: 4px; min-height: 72px; padding: var(--space-2); color: var(--text-secondary); border: 0; background: var(--bg-elevated-1); text-align: left; transition: color 160ms ease-out, background 160ms ease-out, box-shadow 160ms ease-out; }
+.settings-tab strong { color: var(--text-primary); font-size: 14px; font-weight: 600; }
+.settings-tab span { font-size: 12px; line-height: 1.35; }
+.settings-tab:hover { color: var(--text-primary); background: var(--bg-elevated-2); }
+.settings-tab-active { background: var(--bg-elevated-2); box-shadow: inset 0 -2px 0 var(--accent); }
+.settings-form-list { display: grid; gap: 1px; padding: 1px; border-radius: var(--radius-control); background: var(--separator); }
+.settings-form-list .plain-setting { background: var(--bg-elevated-1); }
+.advanced-trigger { display: inline-flex; align-items: center; gap: 7px; margin-top: var(--space-2); padding: 0; color: var(--text-secondary); border: 0; background: transparent; font-size: 12px; }
+.advanced-trigger:hover { color: var(--text-primary); }
+.quick-access-actions.quick-access-open { opacity: 1; pointer-events: auto; transform: translateX(0) scale(1); }
+@media (max-width: 760px) { .settings-tabs { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 480px) { .settings-tabs { grid-template-columns: 1fr; } .settings-tab { min-height: 56px; } }
+.quick-access { cursor: default; }
+.quick-access-toggle { cursor: grab; }
+.quick-access-dragging { cursor: grabbing; user-select: none; }
+.quick-access-dragging .quick-access-toggle { cursor: grabbing; }
+.quick-access-returning { transition: left 360ms cubic-bezier(.22,1,.36,1), top 360ms cubic-bezier(.22,1,.36,1); }
