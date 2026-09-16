@@ -1,120 +1,123 @@
-import { boolean, int, json, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { boolean, integer, jsonb, pgTable, text, timestamp, varchar } from "drizzle-orm/pg-core";
 
-export const users = mysqlTable("users", {
-  id: int("id").autoincrement().primaryKey(),
+const mysqlEnum = (name: string, _values: readonly string[]) => varchar(name, { length: 64 });
+
+export const users = pgTable("users", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
 });
 
-export const sendingAccounts = mysqlTable("sending_accounts", {
-  id: int("id").autoincrement().primaryKey(),
+export const sendingAccounts = pgTable("sending_accounts", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   handle: varchar("handle", { length: 80 }).notNull().unique(),
   label: varchar("label", { length: 120 }).notNull(),
   status: mysqlEnum("status", ["healthy", "warming", "attention", "paused"]).default("warming").notNull(),
-  coldCap: int("coldCap").default(15).notNull(),
-  warmCap: int("warmCap").default(40).notNull(),
-  coldSentToday: int("coldSentToday").default(0).notNull(),
-  warmSentToday: int("warmSentToday").default(0).notNull(),
+  coldCap: integer("coldCap").default(15).notNull(),
+  warmCap: integer("warmCap").default(40).notNull(),
+  coldSentToday: integer("coldSentToday").default(0).notNull(),
+  warmSentToday: integer("warmSentToday").default(0).notNull(),
   workingHours: varchar("workingHours", { length: 80 }).default("09:00–17:30").notNull(),
   spintaxTemplate: text("spintaxTemplate"),
   enabled: boolean("enabled").default(true).notNull(),
   lastActivityAt: timestamp("lastActivityAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
-export const leads = mysqlTable("leads", {
-  id: int("id").autoincrement().primaryKey(),
+export const leads = pgTable("leads", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   username: varchar("username", { length: 120 }).notNull().unique(),
   displayName: varchar("displayName", { length: 160 }),
   bio: text("bio"),
   source: varchar("source", { length: 80 }).notNull(),
-  followers: int("followers"),
+  followers: integer("followers"),
   verified: boolean("verified"),
   lastPostAt: timestamp("lastPostAt"),
   accountJoinedAt: timestamp("accountJoinedAt"),
-  qualificationStatus: json("qualificationStatus"),
+  qualificationStatus: jsonb("qualificationStatus"),
   qualificationVerdict: mysqlEnum("qualificationVerdict", ["qualified", "unqualified", "partial"]).default("partial").notNull(),
   contactStatus: mysqlEnum("contactStatus", ["never", "contacted", "replied", "booked"]).default("never").notNull(),
   scrapedAt: timestamp("scrapedAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
-export const doNotContact = mysqlTable("do_not_contact", {
-  id: int("id").autoincrement().primaryKey(),
+export const doNotContact = pgTable("do_not_contact", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   username: varchar("username", { length: 120 }).notNull().unique(),
   reason: varchar("reason", { length: 240 }).notNull(),
   source: varchar("source", { length: 80 }).default("operator").notNull(),
-  createdBy: int("createdBy"),
+  createdBy: integer("createdBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
-export const campaigns = mysqlTable("campaigns", {
-  id: int("id").autoincrement().primaryKey(),
+export const campaigns = pgTable("campaigns", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   name: varchar("name", { length: 160 }).notNull(),
   status: mysqlEnum("status", ["draft", "active", "paused", "complete"]).default("draft").notNull(),
   sourceFilter: varchar("sourceFilter", { length: 80 }),
-  followerMin: int("followerMin"),
-  followerMax: int("followerMax"),
-  includeKeywords: json("includeKeywords"),
-  excludeKeywords: json("excludeKeywords"),
+  followerMin: integer("followerMin"),
+  followerMax: integer("followerMax"),
+  includeKeywords: jsonb("includeKeywords"),
+  excludeKeywords: jsonb("excludeKeywords"),
   nonResponderFollowupsEnabled: boolean("nonResponderFollowupsEnabled").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
-export const campaignLeads = mysqlTable("campaign_leads", {
-  id: int("id").autoincrement().primaryKey(),
-  campaignId: int("campaignId").notNull(),
-  leadId: int("leadId").notNull(),
-  accountId: int("accountId"),
+export const campaignLeads = pgTable("campaign_leads", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
+  campaignId: integer("campaignId").notNull(),
+  leadId: integer("leadId").notNull(),
+  accountId: integer("accountId"),
+  idempotencyKey: varchar("idempotencyKey", { length: 200 }).unique(),
   sequenceState: mysqlEnum("sequenceState", ["queued", "sent", "replied", "stopped", "booked"]).default("queued").notNull(),
   assignedAt: timestamp("assignedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
-export const conversations = mysqlTable("conversations", {
-  id: int("id").autoincrement().primaryKey(),
-  leadId: int("leadId").notNull(),
-  accountId: int("accountId").notNull(),
-  campaignId: int("campaignId"),
+export const conversations = pgTable("conversations", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
+  leadId: integer("leadId").notNull(),
+  accountId: integer("accountId").notNull(),
+  campaignId: integer("campaignId"),
   state: mysqlEnum("state", ["no_reply", "interested", "not_interested", "follow_up", "booked"]).default("no_reply").notNull(),
   stateSource: mysqlEnum("stateSource", ["ai", "operator"]).default("ai").notNull(),
   lockedByOperator: boolean("lockedByOperator").default(false).notNull(),
   lastMessageAt: timestamp("lastMessageAt"),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
-export const messages = mysqlTable("messages", {
-  id: int("id").autoincrement().primaryKey(),
-  conversationId: int("conversationId").notNull(),
+export const messages = pgTable("messages", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
+  conversationId: integer("conversationId").notNull(),
   direction: mysqlEnum("direction", ["inbound", "outbound"]).notNull(),
   senderType: mysqlEnum("senderType", ["automation", "operator", "lead"]).notNull(),
   body: text("body").notNull(),
   sentAt: timestamp("sentAt").defaultNow().notNull(),
 });
 
-export const appSettings = mysqlTable("app_settings", {
-  id: int("id").autoincrement().primaryKey(),
+export const appSettings = pgTable("app_settings", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   settingKey: varchar("settingKey", { length: 120 }).notNull().unique(),
   settingValue: text("settingValue").notNull(),
-  updatedBy: int("updatedBy"),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedBy: integer("updatedBy"),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
-export const auditLogs = mysqlTable("audit_logs", {
-  id: int("id").autoincrement().primaryKey(),
-  actorUserId: int("actorUserId"),
+export const auditLogs = pgTable("audit_logs", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
+  actorUserId: integer("actorUserId"),
   action: varchar("action", { length: 120 }).notNull(),
   targetType: varchar("targetType", { length: 80 }),
-  targetId: int("targetId"),
-  details: json("details"),
+  targetId: integer("targetId"),
+  details: jsonb("details"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -198,84 +201,87 @@ export type FinalSchema = typeof finalSchema;
 // Live connectors and external integrations remain disabled until they receive a separate review.
 
 
-export const workspaceConfig = mysqlTable("workspace_config", {
-  id: int("id").autoincrement().primaryKey(),
+export const workspaceConfig = pgTable("workspace_config", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   section: varchar("section", { length: 80 }).notNull().unique(),
-  config: json("config").notNull(),
-  updatedBy: int("updatedBy"),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  config: jsonb("config").notNull(),
+  updatedBy: integer("updatedBy"),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
-export const adapterConfigs = mysqlTable("adapter_configs", {
-  id: int("id").autoincrement().primaryKey(),
+export const adapterConfigs = pgTable("adapter_configs", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   adapterKey: varchar("adapterKey", { length: 80 }).notNull().unique(),
   displayName: varchar("displayName", { length: 140 }).notNull(),
   enabled: boolean("enabled").default(false).notNull(),
   mode: mysqlEnum("mode", ["official_api", "operator_assist", "disabled"]).default("disabled").notNull(),
-  settings: json("settings"),
+  settings: jsonb("settings"),
   secretRef: varchar("secretRef", { length: 160 }),
   lastHealthAt: timestamp("lastHealthAt"),
   lastError: text("lastError"),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
-export const automationJobs = mysqlTable("automation_jobs", {
-  id: int("id").autoincrement().primaryKey(),
+export const automationJobs = pgTable("automation_jobs", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   jobType: varchar("jobType", { length: 100 }).notNull(),
   adapterKey: varchar("adapterKey", { length: 80 }),
-  accountId: int("accountId"),
+  accountId: integer("accountId"),
   status: mysqlEnum("status", ["queued", "running", "succeeded", "failed", "paused", "cancelled"]).default("queued").notNull(),
-  attempts: int("attempts").default(0).notNull(),
+  attempts: integer("attempts").default(0).notNull(),
+  leaseOwner: varchar("leaseOwner", { length: 120 }),
+  leaseExpiresAt: timestamp("leaseExpiresAt"),
+  correlationId: varchar("correlationId", { length: 160 }),
   lastErrorCode: varchar("lastErrorCode", { length: 80 }),
   lastError: text("lastError"),
-  payload: json("payload"),
+  payload: jsonb("payload"),
   runAfter: timestamp("runAfter"),
   startedAt: timestamp("startedAt"),
   finishedAt: timestamp("finishedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
-export const accountHealth = mysqlTable("account_health", {
-  id: int("id").autoincrement().primaryKey(),
-  accountId: int("accountId").notNull().unique(),
+export const accountHealth = pgTable("account_health", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
+  accountId: integer("accountId").notNull().unique(),
   status: mysqlEnum("status", ["unknown", "healthy", "degraded", "blocked", "cooldown"]).default("unknown").notNull(),
   lastSuccessAt: timestamp("lastSuccessAt"),
   lastErrorCode: varchar("lastErrorCode", { length: 80 }),
   lastError: text("lastError"),
-  consecutiveFailures: int("consecutiveFailures").default(0).notNull(),
+  consecutiveFailures: integer("consecutiveFailures").default(0).notNull(),
   cooldownUntil: timestamp("cooldownUntil"),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
-export const messageTemplates = mysqlTable("message_templates", {
-  id: int("id").autoincrement().primaryKey(),
+export const messageTemplates = pgTable("message_templates", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   name: varchar("name", { length: 140 }).notNull(),
   channel: varchar("channel", { length: 40 }).default("instagram").notNull(),
   variantKey: varchar("variantKey", { length: 80 }),
   body: text("body").notNull(),
   enabled: boolean("enabled").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
-export const abExperiments = mysqlTable("ab_experiments", {
-  id: int("id").autoincrement().primaryKey(),
+export const abExperiments = pgTable("ab_experiments", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   name: varchar("name", { length: 140 }).notNull(),
   status: mysqlEnum("status", ["draft", "running", "paused", "complete"]).default("draft").notNull(),
   objective: varchar("objective", { length: 80 }).default("booked_call").notNull(),
-  variants: json("variants").notNull(),
-  allocation: json("allocation").notNull(),
+  variants: jsonb("variants").notNull(),
+  allocation: jsonb("allocation").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
-export const notificationRules = mysqlTable("notification_rules", {
-  id: int("id").autoincrement().primaryKey(),
+export const notificationRules = pgTable("notification_rules", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   channel: varchar("channel", { length: 40 }).notNull(),
   targetRef: varchar("targetRef", { length: 220 }),
-  events: json("events").notNull(),
+  events: jsonb("events").notNull(),
   enabled: boolean("enabled").default(false).notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
 export type WorkspaceConfig = typeof workspaceConfig.$inferSelect;
@@ -288,14 +294,14 @@ export type NotificationRule = typeof notificationRules.$inferSelect;
 
 
 /** External API clients. Store only a one-way hash; the raw token is shown once at creation. */
-export const apiClients = mysqlTable("api_clients", {
-  id: int("id").autoincrement().primaryKey(),
+export const apiClients = pgTable("api_clients", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   name: varchar("name", { length: 120 }).notNull(),
   keyPrefix: varchar("keyPrefix", { length: 20 }).notNull().unique(),
   keyHash: varchar("keyHash", { length: 128 }).notNull().unique(),
-  scopes: json("scopes").notNull(),
+  scopes: jsonb("scopes").notNull(),
   enabled: boolean("enabled").default(true).notNull(),
-  createdBy: int("createdBy").notNull(),
+  createdBy: integer("createdBy").notNull(),
   lastUsedAt: timestamp("lastUsedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   revokedAt: timestamp("revokedAt"),
@@ -305,35 +311,35 @@ export type ApiClient = typeof apiClients.$inferSelect;
 
 
 /** Stable network route for an account. Routes are pinned per account; rotation is intentionally not automatic. */
-export const proxyRoutes = mysqlTable("proxy_routes", {
-  id: int("id").autoincrement().primaryKey(),
-  accountId: int("accountId").notNull().unique(),
+export const proxyRoutes = pgTable("proxy_routes", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
+  accountId: integer("accountId").notNull().unique(),
   label: varchar("label", { length: 120 }).notNull(),
   protocol: mysqlEnum("protocol", ["http", "https", "socks5"]).default("https").notNull(),
   host: varchar("host", { length: 255 }).notNull(),
-  port: int("port").notNull(),
+  port: integer("port").notNull(),
   username: varchar("username", { length: 160 }),
   secretRef: varchar("secretRef", { length: 160 }),
   enabled: boolean("enabled").default(false).notNull(),
   lastHealthAt: timestamp("lastHealthAt"),
   lastError: text("lastError"),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
 export type ProxyRoute = typeof proxyRoutes.$inferSelect;
 
 
 /** Operator feedback used to evaluate and improve future qualification models. */
-export const learningEvents = mysqlTable("learning_events", {
-  id: int("id").autoincrement().primaryKey(),
+export const learningEvents = pgTable("learning_events", {
+  id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
   eventType: varchar("eventType", { length: 80 }).notNull(),
   entityType: varchar("entityType", { length: 80 }).notNull(),
-  entityId: int("entityId").notNull(),
+  entityId: integer("entityId").notNull(),
   predictedLabel: varchar("predictedLabel", { length: 80 }),
   finalLabel: varchar("finalLabel", { length: 80 }).notNull(),
-  confidence: int("confidence"),
-  features: json("features"),
-  createdBy: int("createdBy"),
+  confidence: integer("confidence"),
+  features: jsonb("features"),
+  createdBy: integer("createdBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

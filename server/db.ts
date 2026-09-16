@@ -1,5 +1,6 @@
 import { desc, eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 import {
   abExperiments,
   accountHealth,
@@ -28,11 +29,13 @@ import {
 import { ENV } from "./_core/env";
 
 let dbInstance: ReturnType<typeof drizzle> | null = null;
+let pool: Pool | null = null;
 
 export async function getDb() {
   if (!dbInstance && process.env.DATABASE_URL) {
     try {
-      dbInstance = drizzle(process.env.DATABASE_URL);
+      pool = new Pool({ connectionString: process.env.DATABASE_URL, max: Number(process.env.DB_POOL_MAX ?? 10), ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : undefined });
+      dbInstance = drizzle(pool);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       dbInstance = null;
@@ -57,7 +60,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     values.role = user.role ?? "admin";
     updateSet.role = values.role;
   }
-  await db.insert(users).values(values).onDuplicateKeyUpdate({ set: updateSet });
+  await db.insert(users).values(values).onConflictDoUpdate({ target: users.openId, set: updateSet });
 }
 
 export async function getUserByOpenId(openId: string) {
@@ -85,14 +88,14 @@ export async function listApiClients() { const db = await getDb(); return db ? d
 export async function listProxyRoutes() { const db = await getDb(); return db ? db.select().from(proxyRoutes).orderBy(proxyRoutes.accountId) : []; }
 export async function getPrompt() { const db = await getDb(); if (!db) return undefined; const result = await db.select().from(appSettings).where(eq(appSettings.settingKey, "conversation_prompt")).limit(1); return result[0]; }
 export async function createLead(lead: InsertLead) { const db = await getDb(); if (!db) throw new Error("Database unavailable"); return db.insert(leads).values(lead); }
-export async function saveDoNotContact(input: { username: string; reason: string; source?: string; createdBy?: number }) { const db = await getDb(); if (!db) throw new Error("Database unavailable"); return db.insert(doNotContact).values({ username: input.username, reason: input.reason, source: input.source ?? "operator", createdBy: input.createdBy, createdAt: new Date() }).onDuplicateKeyUpdate({ set: { reason: input.reason, source: input.source ?? "operator" } }); }
+export async function saveDoNotContact(input: { username: string; reason: string; source?: string; createdBy?: number }) { const db = await getDb(); if (!db) throw new Error("Database unavailable"); return db.insert(doNotContact).values({ username: input.username, reason: input.reason, source: input.source ?? "operator", createdBy: input.createdBy, createdAt: new Date() }).onConflictDoUpdate({ target: doNotContact.username, set: { reason: input.reason, source: input.source ?? "operator" } }); }
 export async function createCampaign(campaign: InsertCampaign) { const db = await getDb(); if (!db) throw new Error("Database unavailable"); return db.insert(campaigns).values(campaign); }
 export async function updateAccount(accountId: number, values: Partial<InsertSendingAccount>) { const db = await getDb(); if (!db) throw new Error("Database unavailable"); return db.update(sendingAccounts).set(values).where(eq(sendingAccounts.id, accountId)); }
 export async function writeAuditLog(event: InsertAuditLog) { const db = await getDb(); if (!db) return; await db.insert(auditLogs).values(event); }
 export async function recordLearningEvent(input: { eventType: string; entityType: string; entityId: number; predictedLabel?: string; finalLabel: string; confidence?: number; features?: Record<string, unknown>; createdBy?: number }) { const db = await getDb(); if (!db) return; await db.insert(learningEvents).values({ ...input, createdAt: new Date() }); }
 export async function saveApiClient(input: { name: string; keyPrefix: string; keyHash: string; scopes: string[]; createdBy: number }) { const db = await getDb(); if (!db) throw new Error("Database unavailable"); return db.insert(apiClients).values({ ...input, scopes: input.scopes, createdAt: new Date() }); }
 export async function revokeApiClient(id: number, actorUserId: number) { const db = await getDb(); if (!db) throw new Error("Database unavailable"); return db.update(apiClients).set({ enabled: false, revokedAt: new Date() }).where(eq(apiClients.id, id)); }
-export async function saveProxyRoute(input: { accountId: number; label: string; protocol: "http" | "https" | "socks5"; host: string; port: number; username?: string; secretRef?: string; enabled: boolean }) { const db = await getDb(); if (!db) throw new Error("Database unavailable"); return db.insert(proxyRoutes).values({ ...input, updatedAt: new Date() }).onDuplicateKeyUpdate({ set: { ...input, updatedAt: new Date() } }); }
+export async function saveProxyRoute(input: { accountId: number; label: string; protocol: "http" | "https" | "socks5"; host: string; port: number; username?: string; secretRef?: string; enabled: boolean }) { const db = await getDb(); if (!db) throw new Error("Database unavailable"); return db.insert(proxyRoutes).values({ ...input, updatedAt: new Date() }).onConflictDoUpdate({ target: proxyRoutes.accountId, set: { ...input, updatedAt: new Date() } }); }
 export async function findApiClientByHash(keyHash: string) { const db = await getDb(); if (!db) return undefined; const result = await db.select().from(apiClients).where(eq(apiClients.keyHash, keyHash)).limit(1); return result[0]; }
 export async function markApiClientUsed(id: number) { const db = await getDb(); if (!db) return; await db.update(apiClients).set({ lastUsedAt: new Date() }).where(eq(apiClients.id, id)); }
 export async function healthCheck() { const db = await getDb(); return { database: db ? "connected" : "unavailable" as const, mode: "live-data" as const }; }

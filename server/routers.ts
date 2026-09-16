@@ -4,9 +4,11 @@ import { TRPCError } from "@trpc/server";
 import { COOKIE_NAME } from "@shared/const";
 import {
   abExperiments,
+  accountHealth,
   adapterConfigs,
   appSettings,
   automationJobs,
+  campaignLeads,
   campaigns,
   leads,
   notificationRules,
@@ -19,6 +21,11 @@ import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { API_SCOPES, createApiKey } from "./api-keys";
 import { suggestQualification } from "./ai-review";
 import { normalizeConsentBasis } from "./compliance";
+import { planCampaignDryRun } from "./dry-run";
+import { classifyImportRows, type RawLeadImport } from "./lead-import";
+import { assignCampaignLeads } from "./campaign-enrollment";
+import { admitAutomatedColdSend } from "./queue-admission";
+import { completeJob, leaseJob, renewLease } from "./durable-worker";
 import {
   createCampaign,
   createLead,
@@ -84,6 +91,25 @@ export const appRouter = router({
       await writeAuditLog({ actorUserId: ctx.user.id, action: "lead_created", targetType: "lead", details: { username: input.username, source: input.source } });
       return { ok: true } as const;
     }),
+    import: ownerOnly.input(z.object({ rows: z.array(z.record(z.string(), z.unknown())).min(1).max(500), source: z.string().min(1).max(80), consentBasis: z.string().min(2).max(160) })).mutation(async ({ ctx, input }) => {
+      const db = await getDb(); if (!db) throw new Error("Database unavailable");
+      const existing = await db.select({ username: leads.username }).from(leads);
+      const existingUsernames = new Set(existing.map((row) => row.username.toLowerCase()));
+      const blocked = new Set((await listDoNotContact()).map((row: any) => row.username.toLowerCase()));
+      const normalizedRows: RawLeadImport[] = input.rows.map((row) => ({ ...row, source: row.source ?? input.source, consentBasis: row.consentBasis ?? input.consentBasis }));
+      const results = classifyImportRows(normalizedRows, existingUsernames, blocked);
+      let created = 0; let duplicate = 0; let blockedCount = 0; let invalid = 0;
+      for (const result of results) {
+        if (result.outcome === "created") {
+          await createLead({ username: result.lead.username, displayName: result.lead.displayName, bio: result.lead.bio, source: result.lead.source, followers: result.lead.followers, verified: result.lead.verified, lastPostAt: result.lead.lastPostAt, accountJoinedAt: result.lead.accountJoinedAt, qualificationStatus: result.lead.qualificationStatus, qualificationVerdict: result.lead.qualificationVerdict, scrapedAt: result.lead.scrapedAt, createdAt: new Date() });
+          created += 1;
+        } else if (result.outcome === "duplicate") duplicate += 1;
+        else if (result.outcome === "blocked") blockedCount += 1;
+        else invalid += 1;
+      }
+      await writeAuditLog({ actorUserId: ctx.user.id, action: "lead_imported", targetType: "lead_batch", details: { source: input.source, total: results.length, created, duplicate, blocked: blockedCount, invalid } });
+      return { results, summary: { total: results.length, created, duplicate, blocked: blockedCount, invalid } } as const;
+    }),
     review: ownerOnly.input(z.object({ id: z.number().int().positive(), verdict: z.enum(["qualified", "unqualified", "partial"]), notes: z.string().max(2000).optional() })).mutation(async ({ ctx, input }) => {
       const db = await getDb(); if (!db) throw new Error("Database unavailable");
       await db.update(leads).set({ qualificationVerdict: input.verdict, qualificationStatus: input.notes ? { notes: input.notes, reviewedAt: new Date().toISOString() } : undefined }).where(eq(leads.id, input.id));
@@ -116,6 +142,38 @@ export const appRouter = router({
       await writeAuditLog({ actorUserId: ctx.user.id, action: `campaign_${input.status}`, targetType: "campaign", targetId: input.id });
       return { ok: true } as const;
     }),
+    preview: ownerOnly.input(z.object({ id: z.number().int().positive(), maxLeads: z.number().int().positive().max(500).optional(), requireCompleteQualification: z.boolean().default(false) })).mutation(async ({ ctx, input }) => {
+      const db = await getDb(); if (!db) throw new Error("Database unavailable");
+      const campaign = (await db.select().from(campaigns).where(eq(campaigns.id, input.id)).limit(1))[0];
+      if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campaign not found." });
+      const excluded = new Set((await listDoNotContact()).map((record: any) => record.username.toLowerCase()));
+      const leadRows = await db.select().from(leads).limit(500);
+      const decisions = planCampaignDryRun({ id: campaign.id, name: campaign.name, maxLeads: input.maxLeads, requireCompleteQualification: input.requireCompleteQualification, followerMin: campaign.followerMin, followerMax: campaign.followerMax, includeKeywords: Array.isArray(campaign.includeKeywords) ? campaign.includeKeywords as string[] : [], excludeKeywords: Array.isArray(campaign.excludeKeywords) ? campaign.excludeKeywords as string[] : [] }, leadRows.map((lead: any) => {
+        const qualification = lead.qualificationStatus && typeof lead.qualificationStatus === "object" ? lead.qualificationStatus as Record<string, unknown> : {};
+        return { ...lead, consentBasis: typeof qualification.consentBasis === "string" ? qualification.consentBasis : undefined, optedOut: excluded.has(lead.username.toLowerCase()), alreadyContacted: lead.contactStatus !== "never" };
+      }));
+      const queued = decisions.filter((decision) => decision.action === "queue");
+      const [inserted] = await db.insert(automationJobs).values({ jobType: "campaign_dry_run", status: "queued", attempts: 0, payload: { campaignId: campaign.id, decisions, queuedCount: queued.length }, createdAt: new Date() }).returning({ id: automationJobs.id });
+      await writeAuditLog({ actorUserId: ctx.user.id, action: "campaign_dry_run_created", targetType: "campaign", targetId: campaign.id, details: { queuedCount: queued.length, skippedCount: decisions.length - queued.length } });
+      return { jobId: inserted.id, decisions, queuedCount: queued.length, skippedCount: decisions.length - queued.length } as const;
+    }),
+    enroll: ownerOnly.input(z.object({ id: z.number().int().positive(), maxLeads: z.number().int().positive().max(500).optional(), requireCompleteQualification: z.boolean().default(false), roundRobinStart: z.number().int().nonnegative().default(0) })).mutation(async ({ ctx, input }) => {
+      const db = await getDb(); if (!db) throw new Error("Database unavailable");
+      const campaign = (await db.select().from(campaigns).where(eq(campaigns.id, input.id)).limit(1))[0];
+      if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campaign not found." });
+      const [leadRows, accountRows, existingRows, blockedRows] = await Promise.all([db.select().from(leads).limit(500), db.select().from(sendingAccounts), db.select().from(campaignLeads).where(eq(campaignLeads.campaignId, input.id)), listDoNotContact()]);
+      const blocked = new Set(blockedRows.map((row: any) => row.username.toLowerCase()));
+      const candidates = planCampaignDryRun({ id: campaign.id, name: campaign.name, maxLeads: input.maxLeads, requireCompleteQualification: input.requireCompleteQualification, followerMin: campaign.followerMin, followerMax: campaign.followerMax, includeKeywords: Array.isArray(campaign.includeKeywords) ? campaign.includeKeywords as string[] : [], excludeKeywords: Array.isArray(campaign.excludeKeywords) ? campaign.excludeKeywords as string[] : [] }, leadRows.map((lead: any) => ({ ...lead, optedOut: blocked.has(lead.username.toLowerCase()), alreadyContacted: lead.contactStatus !== "never" })));
+      const assignments = assignCampaignLeads(campaign.id, candidates, accountRows, new Set(existingRows.map((row) => row.leadId)), input.roundRobinStart);
+      let enrolled = 0; let skipped = 0;
+      for (const assignment of assignments) {
+        if (!("accountId" in assignment)) { skipped += 1; continue; }
+        await db.insert(campaignLeads).values({ campaignId: campaign.id, leadId: assignment.leadId, accountId: assignment.accountId, idempotencyKey: assignment.idempotencyKey, sequenceState: "queued", assignedAt: new Date(), createdAt: new Date() }).onConflictDoUpdate({ target: campaignLeads.idempotencyKey, set: { idempotencyKey: assignment.idempotencyKey } });
+        enrolled += 1;
+      }
+      await writeAuditLog({ actorUserId: ctx.user.id, action: "campaign_leads_enrolled", targetType: "campaign", targetId: campaign.id, details: { enrolled, skipped, accountIds: assignments.filter((item: any) => item.accountId).map((item: any) => item.accountId) } });
+      return { enrolled, skipped, assignments } as const;
+    }),
   }),
   accounts: router({
     create: ownerOnly.input(z.object({ handle: z.string().min(2).max(120), label: z.string().min(2).max(140) })).mutation(async ({ ctx, input }) => {
@@ -134,7 +192,7 @@ export const appRouter = router({
   config: router({
     saveSection: ownerOnly.input(z.object({ section: z.string().min(2).max(80), config: jsonObject })).mutation(async ({ ctx, input }) => {
       const db = await getDb(); if (!db) throw new Error("Database unavailable");
-      await db.insert(workspaceConfig).values({ section: input.section, config: input.config, updatedBy: ctx.user.id, updatedAt: new Date() }).onDuplicateKeyUpdate({ set: { config: input.config, updatedBy: ctx.user.id, updatedAt: new Date() } });
+      await db.insert(workspaceConfig).values({ section: input.section, config: input.config, updatedBy: ctx.user.id, updatedAt: new Date() }).onConflictDoUpdate({ target: workspaceConfig.section, set: { config: input.config, updatedBy: ctx.user.id, updatedAt: new Date() } });
       await writeAuditLog({ actorUserId: ctx.user.id, action: "config_section_saved", targetType: "workspace_config", details: { section: input.section } });
       return { ok: true } as const;
     }),
@@ -142,7 +200,7 @@ export const appRouter = router({
   adapters: router({
     upsert: ownerOnly.input(z.object({ adapterKey: z.string().min(2).max(80), displayName: z.string().min(2).max(140), enabled: z.boolean(), mode: z.enum(["official_api", "operator_assist", "disabled"]), settings: jsonObject.optional(), secretRef: z.string().max(160).optional() })).mutation(async ({ ctx, input }) => {
       const db = await getDb(); if (!db) throw new Error("Database unavailable");
-      await db.insert(adapterConfigs).values({ ...input, settings: input.settings, updatedAt: new Date() }).onDuplicateKeyUpdate({ set: { displayName: input.displayName, enabled: input.enabled, mode: input.mode, settings: input.settings, secretRef: input.secretRef, updatedAt: new Date() } });
+      await db.insert(adapterConfigs).values({ ...input, settings: input.settings, updatedAt: new Date() }).onConflictDoUpdate({ target: adapterConfigs.adapterKey, set: { displayName: input.displayName, enabled: input.enabled, mode: input.mode, settings: input.settings, secretRef: input.secretRef, updatedAt: new Date() } });
       await writeAuditLog({ actorUserId: ctx.user.id, action: "adapter_configured", targetType: "adapter", details: { adapterKey: input.adapterKey, mode: input.mode, enabled: input.enabled } });
       return { ok: true } as const;
     }),
@@ -160,6 +218,54 @@ export const appRouter = router({
       await writeAuditLog({ actorUserId: ctx.user.id, action: `job_${input.status}`, targetType: "automation_job", targetId: input.id });
       return { ok: true } as const;
     }),
+    admitDryRun: ownerOnly.input(z.object({ campaignId: z.number().int().positive(), minIntervalMinutes: z.number().int().min(1).max(1440).default(8) })).mutation(async ({ ctx, input }) => {
+      const db = await getDb(); if (!db) throw new Error("Database unavailable");
+      const [enrollments, accounts, healthRows, idempotencyRows] = await Promise.all([
+        db.select().from(campaignLeads).where(eq(campaignLeads.campaignId, input.campaignId)),
+        db.select().from(sendingAccounts),
+        db.select().from(accountHealth),
+        db.select({ idempotencyKey: campaignLeads.idempotencyKey }).from(campaignLeads),
+      ]);
+      const accountById = new Map(accounts.map((account) => [account.id, account]));
+      const healthByAccount = new Map(healthRows.map((health) => [health.accountId, health]));
+      const existingKeys = new Set(idempotencyRows.map((row) => row.idempotencyKey).filter((key): key is string => Boolean(key)));
+      const decisions = enrollments.filter((enrollment) => enrollment.sequenceState === "queued" && enrollment.accountId != null).map((enrollment) => {
+        const account = accountById.get(enrollment.accountId!);
+        if (!account) return { campaignLeadId: enrollment.id, action: "reject" as const, reason: "Assigned account no longer exists.", idempotencyKey: enrollment.idempotencyKey };
+        const key = enrollment.idempotencyKey ?? `campaign:${input.campaignId}:lead:${enrollment.leadId}:cold-opener`;
+        return { campaignLeadId: enrollment.id, ...admitAutomatedColdSend({ account, health: healthByAccount.get(account.id), minIntervalMinutes: input.minIntervalMinutes, idempotencyKey: key, existingIdempotencyKeys: new Set(Array.from(existingKeys).filter((existingKey) => existingKey !== enrollment.idempotencyKey)) }) };
+      });
+      const [job] = await db.insert(automationJobs).values({ jobType: "queue_admission_dry_run", status: "queued", attempts: 0, payload: { campaignId: input.campaignId, minIntervalMinutes: input.minIntervalMinutes, decisions }, createdAt: new Date() }).returning({ id: automationJobs.id });
+      await writeAuditLog({ actorUserId: ctx.user.id, action: "queue_admission_dry_run_created", targetType: "campaign", targetId: input.campaignId, details: { jobId: job.id, admitted: decisions.filter((decision) => decision.action === "admit").length, held: decisions.filter((decision) => decision.action === "hold").length, rejected: decisions.filter((decision) => decision.action === "reject").length } });
+      return { jobId: job.id, decisions } as const;
+    }),
+    lease: ownerOnly.input(z.object({ id: z.number().int().positive(), workerId: z.string().min(2).max(120), leaseMs: z.number().int().min(10_000).max(300_000).default(60_000) })).mutation(async ({ ctx, input }) => {
+      const db = await getDb(); if (!db) throw new Error("Database unavailable");
+      const current = (await db.select().from(automationJobs).where(eq(automationJobs.id, input.id)).limit(1))[0];
+      if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Job not found." });
+      const decision = leaseJob(current, input.workerId, new Date(), input.leaseMs);
+      if (decision.ok) await db.update(automationJobs).set({ status: decision.job.status, attempts: decision.job.attempts, leaseOwner: decision.job.leaseOwner, leaseExpiresAt: decision.job.leaseExpiresAt, correlationId: decision.job.correlationId, lastErrorCode: decision.job.lastErrorCode, lastError: decision.job.lastError }).where(eq(automationJobs.id, input.id));
+      await writeAuditLog({ actorUserId: ctx.user.id, action: decision.ok ? "job_leased" : "job_lease_rejected", targetType: "automation_job", targetId: input.id, details: { workerId: input.workerId, reason: decision.reason, correlationId: decision.job.correlationId } });
+      return decision;
+    }),
+    heartbeat: ownerOnly.input(z.object({ id: z.number().int().positive(), workerId: z.string().min(2).max(120), leaseMs: z.number().int().min(10_000).max(300_000).default(60_000) })).mutation(async ({ ctx, input }) => {
+      const db = await getDb(); if (!db) throw new Error("Database unavailable");
+      const current = (await db.select().from(automationJobs).where(eq(automationJobs.id, input.id)).limit(1))[0];
+      if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Job not found." });
+      const decision = renewLease(current, input.workerId, new Date(), input.leaseMs);
+      if (decision.ok) await db.update(automationJobs).set({ leaseExpiresAt: decision.job.leaseExpiresAt }).where(eq(automationJobs.id, input.id));
+      await writeAuditLog({ actorUserId: ctx.user.id, action: decision.ok ? "job_heartbeat" : "job_heartbeat_rejected", targetType: "automation_job", targetId: input.id, details: { workerId: input.workerId, reason: decision.reason, correlationId: decision.job.correlationId } });
+      return decision;
+    }),
+    complete: ownerOnly.input(z.object({ id: z.number().int().positive(), workerId: z.string().min(2).max(120), status: z.enum(["succeeded", "failed"]), errorCode: z.string().max(80).optional(), error: z.string().max(500).optional(), retryAt: z.coerce.date().optional() })).mutation(async ({ ctx, input }) => {
+      const db = await getDb(); if (!db) throw new Error("Database unavailable");
+      const current = (await db.select().from(automationJobs).where(eq(automationJobs.id, input.id)).limit(1))[0];
+      if (!current) throw new TRPCError({ code: "NOT_FOUND", message: "Job not found." });
+      const decision = completeJob(current, input.workerId, { status: input.status, errorCode: input.errorCode, error: input.error, retryAt: input.retryAt });
+      if (decision.ok) await db.update(automationJobs).set({ status: decision.job.status, runAfter: decision.job.runAfter, finishedAt: decision.job.finishedAt, leaseOwner: decision.job.leaseOwner, leaseExpiresAt: decision.job.leaseExpiresAt, lastErrorCode: decision.job.lastErrorCode, lastError: decision.job.lastError }).where(eq(automationJobs.id, input.id));
+      await writeAuditLog({ actorUserId: ctx.user.id, action: decision.ok ? "job_completed" : "job_completion_rejected", targetType: "automation_job", targetId: input.id, details: { workerId: input.workerId, result: input.status, reason: decision.reason, correlationId: decision.job.correlationId } });
+      return decision;
+    }),
   }),
   notifications: router({
     saveRule: ownerOnly.input(z.object({ id: z.number().int().positive().optional(), channel: z.string().min(2).max(40), targetRef: z.string().max(220).optional(), events: z.array(z.string()).min(1), enabled: z.boolean() })).mutation(async ({ ctx, input }) => {
@@ -173,7 +279,7 @@ export const appRouter = router({
   owner: router({
     savePrompt: ownerOnly.input(z.object({ prompt: z.string().min(20).max(10000) })).mutation(async ({ ctx, input }) => {
       const db = await getDb(); if (!db) throw new Error("Database unavailable");
-      await db.insert(appSettings).values({ settingKey: "conversation_prompt", settingValue: input.prompt, updatedBy: ctx.user.id, updatedAt: new Date() }).onDuplicateKeyUpdate({ set: { settingValue: input.prompt, updatedBy: ctx.user.id, updatedAt: new Date() } });
+      await db.insert(appSettings).values({ settingKey: "conversation_prompt", settingValue: input.prompt, updatedBy: ctx.user.id, updatedAt: new Date() }).onConflictDoUpdate({ target: appSettings.settingKey, set: { settingValue: input.prompt, updatedBy: ctx.user.id, updatedAt: new Date() } });
       await writeAuditLog({ actorUserId: ctx.user.id, action: "prompt_updated", targetType: "setting", details: { settingKey: "conversation_prompt" } });
       return { ok: true } as const;
     }),

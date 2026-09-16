@@ -55,8 +55,8 @@ export function registerApiRoutes(app: Express) {
       const input = jobBody.parse(req.body);
       const db = await getDb();
       if (!db) { res.status(503).json({ error: "database_unavailable" }); return; }
-      const result = await db.insert(automationJobs).values({ ...input, status: "queued", attempts: 0, createdAt: new Date() });
-      res.status(202).json({ accepted: true, jobId: Number(result[0].insertId) });
+      const [result] = await db.insert(automationJobs).values({ ...input, status: "queued", attempts: 0, createdAt: new Date() }).returning({ id: automationJobs.id });
+      res.status(202).json({ accepted: true, jobId: result.id });
     } catch (error) {
       if (error instanceof z.ZodError) { res.status(400).json({ error: "invalid_request", issues: error.issues }); return; }
       next(error);
