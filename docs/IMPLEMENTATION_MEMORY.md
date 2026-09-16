@@ -356,3 +356,21 @@ Added Railway and Clerk environment scaffolding. The local auth flow remains the
 Added the dedicated **Feasty Learning Lab** route. It reads live learning event counts from the workspace snapshot, loads persisted stage configuration, calculates a recommended stage, shows thresholds and approval requirements, and saves a governed stage configuration through `config.saveSection`. Stages are Capture, Review, Evaluate, Shadow, Controlled rollout, and Approved active. The shared contract lives in `shared/learning-stages.ts`; tests cover event thresholds and approval gating.
 
 Verification after this slice: TypeScript passed, 40 tests passed across 12 files, and the production build passed. The remaining build warning is the existing bundle-size warning for the main frontend chunk.
+
+
+## UI/UX second pass — 2026-09-16
+
+Re-audited the application route by route against WCAG 2.2, Nielsen Norman Group workplace table guidance, and GOV.UK actionable error-message guidance. Added `docs/UI_UX_AUDIT_2026-09-16_SECOND_PASS.md` with route findings, references, implementation changes, and remaining acceptance gates.
+
+Implemented substantial cross-route UX improvements: keyboard skip link, named workspace navigation, named main target, `aria-current` navigation state, labeled mobile open/close controls, polite preview status announcements, assertive error announcements, sticky table headers, row hover context for scanability, reduced-motion support, and mobile stacking for page-level actions and status banners.
+
+Browser verification showed the skip link and updated shell in the running preview. Full verification passed: TypeScript, 40 tests across 12 files, and production build. The known frontend bundle-size warning remains and is tracked for code-splitting work.
+
+
+## Tactical UX slice — Campaign Builder and Lead Detail — 2026-09-16
+
+Replaced the flat Campaigns screen with a staged six-step Campaign Builder: Audience, Qualification, Sequence, Capacity, Preview, and Enroll & release. Added persistent readiness summary, audience count, healthy-account capacity, qualification mode, sequence selection, external-action state, draft library, next-best-action guidance, preview totals, and separate enrollment/queue-gate actions. The builder reuses the existing campaign create, preview, enrollment, and queue-admission procedures.
+
+Added actionable lead rows and a nonmodal Lead Detail panel. The panel preserves table context while showing qualification, contact state, follower count, capture date, bio/evidence, and the operator next action.
+
+Browser acceptance verified the Campaign Builder through the Overview recommended path in My Browser. TypeScript, 40 tests across 12 files, and production build passed.
